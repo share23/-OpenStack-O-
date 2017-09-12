@@ -1,5 +1,5 @@
 # -OpenStack-O-
-在VirtualBox里的Centos7 mini 搭建OpenStack环境
+在VirtualBox里用Centos7 mini 搭建OpenStack环境
 # 说明
 
 这个教程适用于想尝试搭建OpenStack的人
@@ -10,6 +10,8 @@
 
 电脑内存至少要有8G
 
-这里只提供前期环境配置的教程，当你把前面的配好之后，后面的就自己参照官方文档就能配出来了
+这里只提供前期环境配置的教程
+
+后面的就自己参照官方文档就能配出来了
 
 这个教程对于入门有所帮助
