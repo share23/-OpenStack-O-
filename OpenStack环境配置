@@ -1,0 +1,137 @@
+•	前言
+1.	由于篇幅原因，这里只写出了OpenStack安装环境的搭建。
+2.	我用的是在VirtualBox里安装CentOS7 mini，用CentOS7 mini配置OpenStack的Ocata版。
+3.	配置前提请参考以下链接      http://www.sudos.cn/?p=192       http://www.sudos.cn/?p=201
+4.	OpenStack官方安装文档       https://docs.openstack.org/ocata/install-guide-rdo/index.html
+5.	OpenStack配置教程               http://lizhiyuan.blog.51cto.com/1343931/1904216
+6.	对于初学者来说当你完成了这一步后，你就可以参照相关链接进行下一步的配置。
+7.	官方文档很重要，做好备份，遇到问题上网查。
+8.	不是搭出来就好了，重要的是在这个搭建的过程中锻炼了你解决问题的能力，以及搭建完成后你对整个流程的理解和后续OpenStack的学习、应用。
+•	介绍
+1.	这里采用的是OpenStack Ocata版本
+示例框架至少需要两个节点（主机）来启动基本 虚拟机或实例。块存储和对象存储等可选服务需要额外的节点。
+
+2.	示例架构来配置控制器节点和一个计算节点
+以下最低要求应支持具有核心服务和多个CirrOS实例的概念验证环境：
+控制器节点：1个处理器，4 GB内存和5 GB存储           计算节点：1处理器，2 GB内存和10 GB存储
+
+虚拟机为VirtualBox       操作系统为CentOS7 mini
+
+•	安全设置
+1.	自动创建安全密码
+openssl rand -hex 10
+在之后的配置中记录好以下密码 
+
+•	网络
+1.	网卡192.168.10.0/24 网关192.168.10.1
+controllernode1：enp0s3   dhcp  enp0s8   192.168.10.11
+computenode1： enp0s3   dhcp  enp0s8   192.168.10.12
+2.	网络配好之后关闭防火墙
+关闭防火墙             systemctl  stop  firewalld.service
+禁止防火墙开机启动     systemctl  disable  firewalld.service
+两个命令同时运行,运行完成后查看防火墙关闭状态
+Service  firewalld  status
+3.	关闭selinux
+vi /etc/selinux/config
+SELINUX=disabled
+# setenforce 0，使配置立即生效
+service selinux status
+4.	配置地址解析
+编辑/etc/hosts
+192.168.10.11  controllernode1
+192.168.10.12  computenode1
+5.	配置网络接口。
+配置完成之后需要进行验证：
+与外网连通性：
+分别在控制节点和计算节点上：
+# ping -c 4 www.baidu.com
+控制节点和计算节点连通性：
+控制节点上输入# ping -c 4 computenode1
+计算节点上输入# ping -c 4 controllernode1
+
+•	NTP
+1.	安装相关包
+yum  install  chrony
+2.	contorllernode1
+编辑 /etc/chrony.conf
+server  NTP_SERVER  iburst          (s1b.time.edu.cn)
+NTP服务器地址  http://blog.csdn.net/hello_hwc/article/details/44748785
+可以根据需要将NTP_SERVER替换为合适的NTP服务器，建议不用改。然后添加：
+allow 192.168.10.0/24
+即允许计算节点同步。（计算节点IP网段属于192.168.10.0）
+启动服务。
+# systemctl enable chronyd.service
+# systemctl start chronyd.service
+3.	computenode1
+编辑/etc/chrony.conf，可以将其他的几个同步地址注释掉。
+server  controllernode1  iburst
+同步控制节点。
+# systemctl enable chronyd.service
+# systemctl start chronyd.service
+启动服务。（如果发现同步的不是控制节点，那么重启一下NTP服务即可。)
+# systemctl restart chronyd.service
+验证操作：
+在控制节点上同步时间。
+# chronyc sources
+带星号的是NTP当前同步的地址。
+计算节点上同步。
+# chronyc sources
+MS Name/IP address         Stratum Poll Reach LastRx Last sample
+==================================================
+^* controllernode1          4   6   377   116   -24.8s[ -1433s] +/-  13.6s
+
+•	安装OpenStack包
+以下操作在所有节点上进行。
+启用OpenStack库：  yum install centos-release-openstack-ocata
+1.	在所有节点上升级包
+# yum upgrade
+If the upgrade process includes a new kernel, reboot your host to activate it.
+2.	安装OpenStack 客户端
+# yum install python-openstackclient
+3.	CentOS默认启用了SELinux，安装openstack-selinux来自动管理OpenStack服务的安全策略。
+# yum install openstack-selinux
+
+
+•	SQL数据库
+数据库一般运行在控制节点上。
+安装并配置组件。
+1.	安装相关包。
+# yum install mariadb mariadb-server python2-PyMySQL
+2.	创建并编辑/etc/my.cnf.d/openstack.cnf 文件，并完成以下操作。在配置文件中添加以下配置：　　[mysqld]
+bind-address=192.168.10.11
+default-storage-engine=innodb
+innodb_file_per_table=on
+max_connections=4096
+collation-server=utf8_general_ci
+character-set-server=utf8
+其中bind-address为控制节点IP地址。
+完成安装
+3.	启动数据库并设置开机启动# systemctl enable mariadb.service
+# systemctl start mariadb.service
+4.	运行mysql_secure_installation脚本来保证数据库安全，为root账户设置一个合适的密码# mysql_secure_installation
+Root password for the database
+5.	消息队列
+OpenStack使用消息队列来协调服务之间的状态和操作，消息队列服务一般运行在控制节点上。，OpenStack支持RabbitMQ，Qpid以及ZeroMQ等消息队列服务。本指南使用RabbitMQ消息队列服务。
+安装相关包
+# yum install rabbitmq-server
+6.	启动消息队列并设置开机启动
+# systemctl enable rabbitmq-server.service
+# systemctl start rabbitmq-server.service
+7.	添加openstack用户
+#rabbitmqctl add_user openstack RABBIT_PASS
+使用合适的密码替换掉 RABBIT_PASS
+8.	允许openstack用户的配置、写、读权限
+#rabbitmqctl set_permissions openstack ".*" ".*" ".*"
+9.	缓存令牌
+认证服务的认证机制使用Memcached来缓存令牌，一般运行在控制节点上。
+安装相关包
+# yum install memcached python-memcached
+编辑 /etc/sysconfig/memcached文件并配置IP地址，将127.0.0.1改为控制节点IP。OPTIONS="-l 192.168.10.11,::1"
+完成安装
+10.	　启动 Memcached服务并设置开机启动。
+# systemctl enable memcached.service
+# systemctl start memcached.service
+
+//至此完成OpenStack的安装环境的搭建，注意检查是否在安装的过程中出现错误，每一步都做好备份。
+后续的各项服务安装参照官方文档安装就可以了，遇到有疑问的看看别人的安装教程，善用搜索工具。
+
